@@ -3,21 +3,64 @@ package main
 import (
 	_ "bufio"
 	"fmt"
-	"github.com/mattn/go-gtk/glib"
+	_ "github.com/mattn/go-gtk/glib"
 	"github.com/mattn/go-gtk/gtk"
 	"io/ioutil"
 	"os"
 	_ "path"
 )
 
-func CreateWindow() *gtk.Window {
+func main() {
+	initGtkWindow()
+}
+
+func initGtkWindow() {
+	gtk.Init(nil)
 	window := gtk.NewWindow(gtk.WINDOW_TOPLEVEL)
-	window.SetDefaultSize(700, 300)
+	window.Connect("destroy", gtk.MainQuit)
+	window.SetDefaultSize(688, 250)
+
 	vbox := gtk.NewVBox(false, 1)
-	CreateMenu(window, vbox)
-	CreateTextField(vbox)
+
+	menubar := initMenubar(vbox) // gtk.NewMenuBar()
+	textview := initTextview(vbox)
+
+	vbox.PackStart(menubar, false, false, 0)
+	vbox.Add(textview)
+
 	window.Add(vbox)
-	return window
+	window.ShowAll()
+	gtk.Main()
+}
+
+func initMenubar(vbox *gtk.VBox) *gtk.MenuBar {
+	menubar := gtk.NewMenuBar()
+	menubar_file := gtk.NewMenuItemWithMnemonic("_File")
+	menubar_file_submenu := gtk.NewMenu()
+
+	var menubar_file_submenu_Save *gtk.MenuItem
+	menubar_file_submenu_Save = gtk.NewMenuItemWithMnemonic("_Save")
+	menubar_file_submenu_Save.Connect("activate", save)
+
+	var menubar_file_submenu_Exit *gtk.MenuItem
+	menubar_file_submenu_Exit = gtk.NewMenuItemWithMnemonic("E_xit")
+	menubar_file_submenu_Exit.Connect("activate", gtk.MainQuit)
+
+	menubar_file_submenu.Append(menubar_file_submenu_Save)
+	menubar_file_submenu.Append(menubar_file_submenu_Exit)
+	menubar_file.SetSubmenu(menubar_file_submenu)
+	menubar.Append(menubar_file)
+
+	return menubar
+}
+
+func initTextview(vbox *gtk.VBox) *gtk.VPaned {
+	vpaned := gtk.NewVPaned()
+	return vpaned
+}
+
+func save() {
+	fmt.Println("save")
 }
 
 func CreateMenu(w *gtk.Window, vbox *gtk.VBox) {
@@ -95,27 +138,38 @@ func OnMenuFileQuit() {
 }
 
 func OnMenuFileSave() {
-	fmt.Println("Save: " + File)
-	err := ioutil.WriteFile(File, []byte(Text), 0777)
-	Check(err)
+	if len(File) == 0 {
+		OnMenuFileSaveAs()
+	} else {
+		fmt.Println("Save: " + File)
+		err := ioutil.WriteFile(File, []byte(Text), 0777)
+		Check(err)
+	}
+}
+
+func OnMenuFileSaveAs() {
+	fmt.Println("SaveAs")
+	// fmt.Println(Window)
+	// saveas := gtk.NewFileChooserDialog("Save as...", Window, gtk.FILE_CHOOSER_ACTION_SAVE, gtk.STOCK_SAVE_AS, gtk.RESPONSE_ACCEPT)
+	// saveas.Response(func() {
+	// 	fmt.Println(saveas.GetFilename())
+	// 	saveas.Destroy()
+	// })
+	// saveas.Run()
+}
+
+//--------------------------------------------------------
+// Main
+//--------------------------------------------------------
+
+type Gtk_struct struct {
+	Window *gtk.Window
 }
 
 var (
 	File = Arguments(1)
 	Text = CheckFile(File)
 )
-
-func main() {
-	gtk.Init(nil)
-	window := CreateWindow()
-	window.SetPosition(gtk.WIN_POS_CENTER)
-	window.Connect("destroy", func(ctx *glib.CallbackContext) {
-		fmt.Println("destroy pending...")
-		gtk.MainQuit()
-	}, "foo")
-	window.ShowAll()
-	gtk.Main()
-}
 
 func CheckFile(file string) string {
 	if err := FileExists(file); err == nil {
