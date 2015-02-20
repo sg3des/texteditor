@@ -8,178 +8,192 @@ import (
 	"io/ioutil"
 	"os"
 	_ "path"
+	_ "sync"
+	"time"
+)
+
+var (
+	File     = Arguments(1)
+	Text     = ""
+	Buffer   = ""
+	Opentime time.Time
+
+	Window         *gtk.Window
+	Buffertextview *gtk.TextBuffer
+	GtkTextview    *gtk.TextView
 )
 
 func main() {
-	initGtkWindow()
+	go FileSync()
+	Prepare(File)
+	GtkWindow()
+
 }
 
-func initGtkWindow() {
+func GtkWindow() {
 	gtk.Init(nil)
-	window := gtk.NewWindow(gtk.WINDOW_TOPLEVEL)
-	window.Connect("destroy", gtk.MainQuit)
-	window.SetDefaultSize(688, 250)
+	Window = gtk.NewWindow(gtk.WINDOW_TOPLEVEL)
+	Window.Connect("destroy", Quit)
+	SetTitle(File)
+	Window.SetDefaultSize(688, 250)
 
 	vbox := gtk.NewVBox(false, 1)
 
-	menubar := initMenubar(vbox) // gtk.NewMenuBar()
-	textview := initTextview(vbox)
+	menubar := Menubar(vbox)
+	textview := Textview(vbox)
 
 	vbox.PackStart(menubar, false, false, 0)
 	vbox.Add(textview)
 
-	window.Add(vbox)
-	window.ShowAll()
+	Window.Add(vbox)
+	Window.ShowAll()
 	gtk.Main()
 }
 
-func initMenubar(vbox *gtk.VBox) *gtk.MenuBar {
+func Menubar(vbox *gtk.VBox) *gtk.MenuBar {
 	menubar := gtk.NewMenuBar()
-	menubar_file := gtk.NewMenuItemWithMnemonic("_File")
-	menubar_file_submenu := gtk.NewMenu()
+	file := gtk.NewMenuItemWithMnemonic("_File")
+	filemenu := gtk.NewMenu()
 
-	var menubar_file_submenu_Save *gtk.MenuItem
-	menubar_file_submenu_Save = gtk.NewMenuItemWithMnemonic("_Save")
-	menubar_file_submenu_Save.Connect("activate", save)
+	accel_group := gtk.NewAccelGroup()
+	Window.AddAccelGroup(accel_group)
 
-	var menubar_file_submenu_Exit *gtk.MenuItem
-	menubar_file_submenu_Exit = gtk.NewMenuItemWithMnemonic("E_xit")
-	menubar_file_submenu_Exit.Connect("activate", gtk.MainQuit)
+	save := gtk.NewImageMenuItemFromStock(gtk.STOCK_SAVE, accel_group)
+	save_as := gtk.NewImageMenuItemFromStock(gtk.STOCK_SAVE_AS, accel_group)
+	open := gtk.NewImageMenuItemFromStock(gtk.STOCK_OPEN, accel_group)
+	sep := gtk.NewSeparatorMenuItem()
+	quit := gtk.NewImageMenuItemFromStock(gtk.STOCK_QUIT, accel_group)
 
-	menubar_file_submenu.Append(menubar_file_submenu_Save)
-	menubar_file_submenu.Append(menubar_file_submenu_Exit)
-	menubar_file.SetSubmenu(menubar_file_submenu)
-	menubar.Append(menubar_file)
+	save.Connect("activate", Save)
+	save_as.Connect("activate", Save_as)
+	open.Connect("activate", Open)
+	quit.Connect("activate", Quit)
+
+	filemenu.Append(save)
+	filemenu.Append(save_as)
+	filemenu.Append(open)
+	filemenu.Append(sep)
+	filemenu.Append(quit)
+	file.SetSubmenu(filemenu)
+	menubar.Append(file)
 
 	return menubar
 }
 
-func initTextview(vbox *gtk.VBox) *gtk.VPaned {
+func Textview(vbox *gtk.VBox) *gtk.VPaned {
 	vpaned := gtk.NewVPaned()
+
+	swin := gtk.NewScrolledWindow(nil, nil)
+	swin.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+	GtkTextview := gtk.NewTextView()
+	swin.Add(GtkTextview)
+
+	Buffertextview = GtkTextview.GetBuffer()
+	Buffertextview.SetText(Text)
+
+	Buffertextview.Connect("changed", TextBuffer)
+
+	vpaned.Pack1(swin, false, false)
+
 	return vpaned
 }
 
-func save() {
-	fmt.Println("save")
+func TextBuffer() {
+	fmt.Println("TextBuffer")
+	var start, end gtk.TextIter
+	Buffertextview.GetStartIter(&start)
+	Buffertextview.GetEndIter(&end)
+	fmt.Println("Buffer:" + Buffer)
+	Buffer = Buffertextview.GetText(&start, &end, false)
+	fmt.Println("Buffer:" + Buffer)
+	fmt.Println("Text  :" + Text)
+	if Buffer != Text {
+		if Window.GetTitle()[0] != 42 { // string(42) == *
+			Window.SetTitle("*" + Window.GetTitle())
+		}
+	}
 }
 
-func CreateMenu(w *gtk.Window, vbox *gtk.VBox) {
-	action_group := gtk.NewActionGroup("my_group")
-	ui_manager := CreateUIManager()
-	accel_group := ui_manager.GetAccelGroup()
-	w.AddAccelGroup(accel_group)
-	AddFileMenuActions(action_group)
-	ui_manager.InsertActionGroup(action_group, 0)
-	menubar := ui_manager.GetWidget("/MenuBar")
-	vbox.PackStart(menubar, false, false, 0)
+func Save() {
+	if len(File) > 0 {
+		fmt.Println("Save")
+		WriteFile()
+	} else {
+		Save_as()
+	}
 }
 
-func CreateTextField(vbox *gtk.VBox) {
-	swin := gtk.NewScrolledWindow(nil, nil)
-	swin.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-	textview := gtk.NewTextView()
-	swin.Add(textview)
+func Save_as() {
+	fmt.Println("Save_as")
 
-	buffer := textview.GetBuffer()
-	buffer.SetText(Text)
+	dialog := gtk.NewFileChooserDialog("Save as...", Window, gtk.FILE_CHOOSER_ACTION_SAVE, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_SAVE, gtk.RESPONSE_ACCEPT)
+	if response := dialog.Run(); response == gtk.RESPONSE_ACCEPT {
+		if File = dialog.GetFilename(); len(File) > 0 {
+			WriteFile()
+			SetTitle(File)
+		}
+	}
 
-	buffer.Connect("changed", func() {
-		var start, end gtk.TextIter
-		buffer.GetStartIter(&start)
-		buffer.GetEndIter(&end)
-		Text = buffer.GetText(&start, &end, false)
-	})
-
-	vpaned := gtk.NewVPaned()
-	vbox.Add(vpaned)
-
-	vpaned.Pack1(swin, false, false)
-	// vbox.PackStart(swin, false, false, 0)
+	dialog.Destroy()
 }
 
-func CreateUIManager() *gtk.UIManager {
-	UI_INFO := `
-<ui>
-	<menubar name='MenuBar'>
-		<menu action='FileMenu'>
-			<menuitem action='FileSave' />
-			<menuitem action='FileQuit' />
-		</menu>
-	</menubar>
-</ui>
-`
-	ui_manager := gtk.NewUIManager()
-	ui_manager.AddUIFromString(UI_INFO)
-	return ui_manager
+func Open() {
+	fmt.Println("Open")
+
+	dialog := gtk.NewFileChooserDialog("Open", Window, gtk.FILE_CHOOSER_ACTION_OPEN, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_ACCEPT)
+	if response := dialog.Run(); response == gtk.RESPONSE_ACCEPT {
+		if File = dialog.GetFilename(); len(File) > 0 {
+			Prepare(File)
+			Buffertextview.SetText(Text)
+			SetTitle(File)
+		}
+	}
+
+	dialog.Destroy()
 }
 
-func AddFileMenuActions(action_group *gtk.ActionGroup) {
-	action_group.AddAction(gtk.NewAction("FileMenu", "File", "", ""))
-
-	action_filenewmenu := gtk.NewAction("FileNew", "", "", gtk.STOCK_NEW)
-	action_group.AddAction(action_filenewmenu)
-
-	action_filequit := gtk.NewAction("FileQuit", "", "", gtk.STOCK_QUIT)
-	action_filequit.Connect("activate", OnMenuFileQuit)
-	action_group.AddActionWithAccel(action_filequit, "")
-
-	action_filesave := gtk.NewAction("FileSave", "", "", gtk.STOCK_SAVE)
-	action_filesave.Connect("activate", OnMenuFileSave)
-	action_group.AddActionWithAccel(action_filesave, "<ctrl>s")
-}
-
-func OnMenuFileNewGeneric() {
-	fmt.Println("A File|New menu item was selected.")
-}
-
-func OnMenuFileQuit() {
-	fmt.Println("quit app...")
+func Quit() {
+	fmt.Println("Quit")
 	gtk.MainQuit()
 }
 
-func OnMenuFileSave() {
-	if len(File) == 0 {
-		OnMenuFileSaveAs()
+func WriteFile() {
+	err := ioutil.WriteFile(File, []byte(Buffer), 0755)
+	Error(err)
+	if stat, err := os.Stat(File); os.IsNotExist(err) {
+		fmt.Println(File + " not exists")
 	} else {
-		fmt.Println("Save: " + File)
-		err := ioutil.WriteFile(File, []byte(Text), 0777)
-		Check(err)
+		Opentime = stat.ModTime()
+		Window.SetTitle(File)
+		Text = Buffer
 	}
 }
 
-func OnMenuFileSaveAs() {
-	fmt.Println("SaveAs")
-	// fmt.Println(Window)
-	// saveas := gtk.NewFileChooserDialog("Save as...", Window, gtk.FILE_CHOOSER_ACTION_SAVE, gtk.STOCK_SAVE_AS, gtk.RESPONSE_ACCEPT)
-	// saveas.Response(func() {
-	// 	fmt.Println(saveas.GetFilename())
-	// 	saveas.Destroy()
-	// })
-	// saveas.Run()
-}
-
-//--------------------------------------------------------
-// Main
-//--------------------------------------------------------
-
-type Gtk_struct struct {
-	Window *gtk.Window
-}
-
-var (
-	File = Arguments(1)
-	Text = CheckFile(File)
-)
-
-func CheckFile(file string) string {
-	if err := FileExists(file); err == nil {
-		// fmt.Println("CheckFile: " + file)
-		return OpenFile(file)
-	} else {
-		// fmt.Println("CheckFile else: " + file)
-		return ""
+func Prepare(File string) {
+	if len(File) > 0 {
+		if stat, err := os.Stat(File); os.IsNotExist(err) {
+			fmt.Println(File + " not exists")
+		} else {
+			Text = ReadFile(File)
+			Buffer = Text
+			Opentime = stat.ModTime()
+		}
 	}
-	// return ""
+}
+
+func ReadFile(File string) string {
+	if text, err := ioutil.ReadFile(File); err == nil {
+		return string(text)
+	} else {
+		Error(err)
+	}
+	return ""
+}
+
+func SetTitle(title string) {
+	if len(title) > 0 {
+		Window.SetTitle(title)
+	}
 }
 
 func Arguments(index int) string {
@@ -190,101 +204,30 @@ func Arguments(index int) string {
 	}
 }
 
-func FileExists(file string) error {
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		return err
-	} else {
-		return nil
+func FileSync() {
+	for {
+		time.Sleep(2 * time.Second)
+		if Window.GetTitle()[0] != 42 {
+			if Opentime.Before(Chtimes(File)) {
+				fmt.Println("Sync")
+				Prepare(File)
+				Buffertextview.SetText(Text)
+			}
+		}
 	}
 }
 
-func OpenFile(file string) string {
-	fmt.Println("Open: " + file)
-	text, err := ioutil.ReadFile(file)
-	Check(err)
-	return string(text)
+func Chtimes(File string) time.Time {
+	info, err := os.Stat(File)
+	Error(err)
+	// if info.ModTime().Equal(info.ModTime()) {
+	// 	fmt.Println("after")
+	// }
+	return info.ModTime()
 }
 
-func Check(e error) {
+func Error(e error) {
 	if e != nil {
 		panic(e)
 	}
 }
-
-// func Save(file File) {
-// 	fmt.Println(file.Text)
-// 	fmt.Println("save")
-// 	err := ioutil.WriteFile(file.Filepath, file.Text, 0777)
-// 	Check(err)
-// }
-
-// func Frame(file *File) {
-// 	gtk.Init(nil)
-// 	window := gtk.NewWindow(gtk.WINDOW_TOPLEVEL)
-// 	vbox := gtk.NewVBox(false, 1)
-
-// 	menubar := gtk.NewMenuBar()
-// 	vbox.PackStart(menubar, false, false, 0)
-
-// 	vpaned := gtk.NewVPaned()
-// 	vbox.Add(vpaned)
-// 	//--------------------------------------------------------
-// 	// Text
-// 	//--------------------------------------------------------
-// 	swin := gtk.NewScrolledWindow(nil, nil)
-// 	swin.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-// 	textview := gtk.NewTextView()
-// 	swin.Add(textview)
-
-// 	buffer := textview.GetBuffer()
-// 	buffer.SetText(string(file.Text))
-
-// 	vpaned.Pack1(swin, false, false)
-
-// 	//--------------------------------------------------------
-// 	// MenuBar
-// 	//--------------------------------------------------------
-// 	// var menuitem *gtk.MenuItem
-
-// 	// menu_file := gtk.NewMenuItemWithMnemonic("_File")
-// 	// menubar.Append(menu_file)
-// 	// submenu_file := gtk.NewMenu()
-// 	// menu_file.SetSubmenu(submenu_file)
-
-// 	// menuitem_save := gtk.NewMenuItemWithMnemonic("_Save")
-// 	// menuitem_save.Connect("activate", func() {
-// 	// 	var start, end gtk.TextIter
-// 	// 	buffer.GetStartIter(&start)
-// 	// 	buffer.GetEndIter(&end)
-// 	// 	text := buffer.GetText(&start, &end, false)
-// 	// 	file := File{
-// 	// 		file.Filename,
-// 	// 		file.Filepath,
-// 	// 		[]byte(text),
-// 	// 	}
-// 	// 	save(file)
-// 	// })
-// 	// menu_file.AddActionWithAccel(menuitem_save, "<control>S")
-// 	// submenu_file.Append(menuitem_save)
-
-// 	// menuitem_exit := gtk.NewMenuItemWithMnemonic("E_xit")
-// 	// menuitem_exit.Connect("activate", func() {
-// 	// 	gtk.MainQuit()
-// 	// })
-// 	// submenu_file.Append(menuitem_exit)
-
-// 	//--------------------------------------------------------
-// 	// EndFrame
-// 	//--------------------------------------------------------
-
-// 	window.SetPosition(gtk.WIN_POS_CENTER)
-// 	window.SetTitle(file.Filepath)
-// 	window.SetIconName("text-plain")
-// 	window.Connect("destroy", gtk.MainQuit)
-
-// 	window.Add(vbox)
-
-// 	window.SetSizeRequest(250, 100)
-// 	window.ShowAll()
-// 	gtk.Main()
-// }
