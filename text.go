@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	_ "path"
+	"regexp"
 	_ "sync"
 	"time"
 )
@@ -16,6 +17,8 @@ var (
 	File     = Arguments(1)
 	Text     = ""
 	Buffer   = ""
+	Modified = false
+
 	Opentime time.Time
 
 	Window         *gtk.Window
@@ -24,18 +27,19 @@ var (
 )
 
 func main() {
-	go FileSync()
-	Prepare(File)
+	gtk.Init(nil)
 	GtkWindow()
 
+	go PrepareFile()
+	go FileSync()
+
+	gtk.Main()
 }
 
 func GtkWindow() {
-	gtk.Init(nil)
 	Window = gtk.NewWindow(gtk.WINDOW_TOPLEVEL)
 	Window.Connect("destroy", Quit)
-	SetTitle(File)
-	Window.SetDefaultSize(688, 250)
+	Window.SetDefaultSize(600, 250)
 
 	vbox := gtk.NewVBox(false, 1)
 
@@ -47,7 +51,6 @@ func GtkWindow() {
 
 	Window.Add(vbox)
 	Window.ShowAll()
-	gtk.Main()
 }
 
 func Menubar(vbox *gtk.VBox) *gtk.MenuBar {
@@ -85,33 +88,33 @@ func Textview(vbox *gtk.VBox) *gtk.VPaned {
 
 	swin := gtk.NewScrolledWindow(nil, nil)
 	swin.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-	GtkTextview := gtk.NewTextView()
+	GtkTextview = gtk.NewTextView()
 	swin.Add(GtkTextview)
 
 	Buffertextview = GtkTextview.GetBuffer()
-	Buffertextview.SetText(Text)
-
-	Buffertextview.Connect("changed", TextBuffer)
+	Buffertextview.Connect("changed", TextChanged)
 
 	vpaned.Pack1(swin, false, false)
-
 	return vpaned
 }
 
-func TextBuffer() {
-	fmt.Println("TextBuffer")
+func TextChanged() {
+	fmt.Println("TextChanged")
 	var start, end gtk.TextIter
 	Buffertextview.GetStartIter(&start)
 	Buffertextview.GetEndIter(&end)
 	fmt.Println("Buffer:" + Buffer)
+	fmt.Println("Text  :" + Text)
 	Buffer = Buffertextview.GetText(&start, &end, false)
 	fmt.Println("Buffer:" + Buffer)
 	fmt.Println("Text  :" + Text)
+	fmt.Println("---")
 	if Buffer != Text {
-		if Window.GetTitle()[0] != 42 { // string(42) == *
-			Window.SetTitle("*" + Window.GetTitle())
-		}
+		Modified = true
+	} else {
+		Modified = false
 	}
+	SetTitle()
 }
 
 func Save() {
@@ -130,7 +133,6 @@ func Save_as() {
 	if response := dialog.Run(); response == gtk.RESPONSE_ACCEPT {
 		if File = dialog.GetFilename(); len(File) > 0 {
 			WriteFile()
-			SetTitle(File)
 		}
 	}
 
@@ -143,9 +145,7 @@ func Open() {
 	dialog := gtk.NewFileChooserDialog("Open", Window, gtk.FILE_CHOOSER_ACTION_OPEN, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_ACCEPT)
 	if response := dialog.Run(); response == gtk.RESPONSE_ACCEPT {
 		if File = dialog.GetFilename(); len(File) > 0 {
-			Prepare(File)
-			Buffertextview.SetText(Text)
-			SetTitle(File)
+			PrepareFile()
 		}
 	}
 
@@ -164,19 +164,23 @@ func WriteFile() {
 		fmt.Println(File + " not exists")
 	} else {
 		Opentime = stat.ModTime()
-		Window.SetTitle(File)
 		Text = Buffer
+		Modified = false
+		SetTitle()
 	}
 }
 
-func Prepare(File string) {
+func PrepareFile() {
 	if len(File) > 0 {
 		if stat, err := os.Stat(File); os.IsNotExist(err) {
 			fmt.Println(File + " not exists")
 		} else {
 			Text = ReadFile(File)
-			Buffer = Text
+			// Buffer = Text
 			Opentime = stat.ModTime()
+			Modified = false
+			SetTitle()
+			SetText()
 		}
 	}
 }
@@ -190,10 +194,19 @@ func ReadFile(File string) string {
 	return ""
 }
 
-func SetTitle(title string) {
-	if len(title) > 0 {
-		Window.SetTitle(title)
+func SetTitle() {
+	if len(File) > 0 {
+		Window.SetTitle(File)
 	}
+	if match, _ := regexp.MatchString("^\\*", Window.GetTitle()); !match && Modified {
+		Window.SetTitle("*" + Window.GetTitle())
+	}
+}
+
+func SetText() {
+	fmt.Println("SetText")
+	Buffertextview.SetText(Text)
+	// GtkTextview.GetBuffer().SetText(Text)
 }
 
 func Arguments(index int) string {
@@ -207,14 +220,12 @@ func Arguments(index int) string {
 func FileSync() {
 	for {
 		time.Sleep(2 * time.Second)
-		if Window.GetTitle()[0] != 42 {
-			if Opentime.Before(Chtimes(File)) {
-				fmt.Println("Sync")
-				Prepare(File)
-				Buffertextview.SetText(Text)
-			}
+		if len(File) > 0 && Opentime.Before(Chtimes(File)) && !Modified {
+			fmt.Println("Sync")
+			PrepareFile()
 		}
 	}
+	fmt.Println("")
 }
 
 func Chtimes(File string) time.Time {
