@@ -2,28 +2,36 @@ package main
 
 import (
 	_ "bufio"
+	"code.google.com/p/go-charset/charset"
+	_ "code.google.com/p/go-charset/data"
 	"fmt"
 	_ "github.com/mattn/go-gtk/glib"
 	"github.com/mattn/go-gtk/gtk"
+	xcharset "golang.org/x/net/html/charset"
 	"io/ioutil"
 	"os"
 	_ "path"
 	"regexp"
+	"strings"
 	_ "sync"
 	"time"
 )
 
 var (
-	File     = Arguments(1)
-	Text     = ""
-	Buffer   = ""
-	Modified = false
+	File        = Arguments(1)
+	Text        = ""
+	Buffer      = ""
+	History     = make(map[int]string)
+	History_key = 0
+	Modified    = false
 
 	Opentime time.Time
 
 	Window         *gtk.Window
 	Buffertextview *gtk.TextBuffer
 	GtkTextview    *gtk.TextView
+
+	CharsetDir = "/srv/go/.golib/src/code.google.com/p/go-charset/data/"
 )
 
 func main() {
@@ -32,6 +40,7 @@ func main() {
 
 	go PrepareFile()
 	go FileSync()
+	go Histories()
 
 	gtk.Main()
 }
@@ -43,47 +52,88 @@ func GtkWindow() {
 
 	vbox := gtk.NewVBox(false, 1)
 
-	menubar := Menubar(vbox)
-	textview := Textview(vbox)
+	menubar := Menubar()
+	notice := Notice()
+	textview := Textview()
 
 	vbox.PackStart(menubar, false, false, 0)
+	vbox.PackStart(notice, false, false, 0)
 	vbox.Add(textview)
 
 	Window.Add(vbox)
 	Window.ShowAll()
 }
 
-func Menubar(vbox *gtk.VBox) *gtk.MenuBar {
-	menubar := gtk.NewMenuBar()
-	file := gtk.NewMenuItemWithMnemonic("_File")
-	filemenu := gtk.NewMenu()
-
-	accel_group := gtk.NewAccelGroup()
+func Menubar() *gtk.Widget {
+	ui_xml := `
+<ui>
+	<menubar name='MenuBar'>
+		<menu action='File'>
+			<menuitem action='Save' />
+			<menuitem action='Save_as' />
+			<menuitem action='Open' />
+			<separator />
+			<menuitem action='Quit' />
+		</menu>
+		<menu action='Edit'>
+			<menuitem action='Redo' />
+			<menuitem action='Undo' />
+		</menu>
+	</menubar>
+</ui>
+	`
+	ui := gtk.NewUIManager()
+	ui.AddUIFromString(ui_xml)
+	action_group := gtk.NewActionGroup("MenuBar")
+	accel_group := ui.GetAccelGroup()
 	Window.AddAccelGroup(accel_group)
 
-	save := gtk.NewImageMenuItemFromStock(gtk.STOCK_SAVE, accel_group)
-	save_as := gtk.NewImageMenuItemFromStock(gtk.STOCK_SAVE_AS, accel_group)
-	open := gtk.NewImageMenuItemFromStock(gtk.STOCK_OPEN, accel_group)
-	sep := gtk.NewSeparatorMenuItem()
-	quit := gtk.NewImageMenuItemFromStock(gtk.STOCK_QUIT, accel_group)
+	action_group.AddAction(gtk.NewAction("File", "File", "", ""))
+	action_group.AddAction(gtk.NewAction("Edit", "Edit", "", ""))
+
+	save := gtk.NewAction("Save", "Save", "", gtk.STOCK_SAVE)
+	save_as := gtk.NewAction("Save_as", "Save as", "", gtk.STOCK_SAVE_AS)
+	open := gtk.NewAction("Open", "Open", "", gtk.STOCK_OPEN)
+	quit := gtk.NewAction("Quit", "Quit", "", gtk.STOCK_QUIT)
+	redo := gtk.NewAction("Redo", "Redo", "", gtk.STOCK_REDO)
+	undo := gtk.NewAction("Undo", "Undo", "", gtk.STOCK_UNDO)
 
 	save.Connect("activate", Save)
 	save_as.Connect("activate", Save_as)
 	open.Connect("activate", Open)
 	quit.Connect("activate", Quit)
+	redo.Connect("activate", Redo)
+	undo.Connect("activate", Undo)
 
-	filemenu.Append(save)
-	filemenu.Append(save_as)
-	filemenu.Append(open)
-	filemenu.Append(sep)
-	filemenu.Append(quit)
-	file.SetSubmenu(filemenu)
-	menubar.Append(file)
+	action_group.AddActionWithAccel(save, "<control>S")
+	action_group.AddAction(save_as)
+	action_group.AddActionWithAccel(open, "<control>O")
+	action_group.AddActionWithAccel(quit, "<control>Q")
+
+	action_group.AddActionWithAccel(redo, "<control>Y")
+	action_group.AddActionWithAccel(undo, "<control>Z")
+
+	ui.InsertActionGroup(action_group, 0)
+	menubar := ui.GetWidget("/MenuBar")
 
 	return menubar
 }
 
-func Textview(vbox *gtk.VBox) *gtk.VPaned {
+func Notice() *gtk.HBox {
+	toolbar := gtk.NewHBox(false, 5)
+	// button1 := gtk.NewButtonWithLabel("asd1")
+	// button2 := gtk.NewButtonWithLabel("asd2")
+	// button3 := gtk.NewButtonWithLabel("asd3")
+	// button4 := gtk.NewButtonWithLabel("asd4")
+	// toolbar.PackStart(button1, false, false, 0)
+	// toolbar.PackStart(button2, false, false, 0)
+	// toolbar.PackStart(button3, false, false, 0)
+	// toolbar.PackStart(button4, false, false, 0)
+
+	return toolbar
+}
+
+func Textview() *gtk.VPaned {
 	vpaned := gtk.NewVPaned()
 
 	swin := gtk.NewScrolledWindow(nil, nil)
@@ -99,22 +149,37 @@ func Textview(vbox *gtk.VBox) *gtk.VPaned {
 }
 
 func TextChanged() {
-	fmt.Println("TextChanged")
+	// fmt.Println("TextChanged")
 	var start, end gtk.TextIter
 	Buffertextview.GetStartIter(&start)
 	Buffertextview.GetEndIter(&end)
-	fmt.Println("Buffer:" + Buffer)
-	fmt.Println("Text  :" + Text)
-	Buffer = Buffertextview.GetText(&start, &end, false)
-	fmt.Println("Buffer:" + Buffer)
-	fmt.Println("Text  :" + Text)
-	fmt.Println("---")
+
+	buffer := Buffertextview.GetText(&start, &end, false)
+	fmt.Println("Buffer: " + Buffer)
+	fmt.Println("buffer: " + buffer)
+	if buffer != Buffer && len(buffer) > 0 {
+		fmt.Println("Update Buffer")
+		Buffer = buffer
+		History_key = len(History)
+	}
+
 	if Buffer != Text {
 		Modified = true
 	} else {
 		Modified = false
 	}
 	SetTitle()
+}
+
+func Histories() {
+	for {
+		fmt.Println(History_key)
+		if len(Buffer) > 0 && Buffer != History[len(History)-1] && History_key == len(History) {
+			fmt.Println("add to History")
+			History[len(History)] = Buffer
+		}
+		time.Sleep(2 * time.Second)
+	}
 }
 
 func Save() {
@@ -157,6 +222,30 @@ func Quit() {
 	gtk.MainQuit()
 }
 
+func Redo() {
+	fmt.Println("Redo")
+	if History_key == -1 {
+		History_key = len(History) - 1
+	}
+	if len(History)-1 > History_key {
+		History_key++
+		SetText(History[History_key])
+	}
+	fmt.Println(History_key)
+}
+
+func Undo() {
+	fmt.Println("Undo")
+	if History_key == -1 {
+		History_key = len(History) - 1
+	}
+	if History_key > 0 && len(History) > 0 {
+		History_key--
+		SetText(History[History_key])
+	}
+	fmt.Println(History_key)
+}
+
 func WriteFile() {
 	err := ioutil.WriteFile(File, []byte(Buffer), 0755)
 	Error(err)
@@ -180,19 +269,35 @@ func PrepareFile() {
 			Opentime = stat.ModTime()
 			Modified = false
 			SetTitle()
-			SetText()
+			SetText(Text)
 		}
 	}
 }
 
 func ReadFile(File string) string {
 	if text, err := ioutil.ReadFile(File); err == nil {
-		return string(text)
+		text := CharsetConverter(text)
+		return text
 	} else {
 		Error(err)
 	}
 	return ""
 }
+
+func CharsetConverter(text []byte) string {
+	_, charsetName, _ := xcharset.DetermineEncoding(text, "[]byte")
+	if charsetName != "utf-8" {
+		r, err := charset.NewReader("windows-1251", strings.NewReader(string(text)))
+		Error(err)
+		text, err = ioutil.ReadAll(r)
+		Error(err)
+	}
+	return string(text)
+}
+
+// func Notice() {
+
+// }
 
 func SetTitle() {
 	if len(File) > 0 {
@@ -203,9 +308,10 @@ func SetTitle() {
 	}
 }
 
-func SetText() {
+func SetText(text string) {
 	fmt.Println("SetText")
-	Buffertextview.SetText(Text)
+	Buffer = text
+	Buffertextview.SetText(text)
 	// GtkTextview.GetBuffer().SetText(Text)
 }
 
@@ -225,7 +331,6 @@ func FileSync() {
 			PrepareFile()
 		}
 	}
-	fmt.Println("")
 }
 
 func Chtimes(File string) time.Time {
