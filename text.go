@@ -76,6 +76,10 @@ func Menubar() *gtk.Widget {
 			<menuitem action='Quit' />
 		</menu>
 		<menu action='Edit'>
+			<menuitem action='Find' />
+			<menuitem action='Find_next' />
+			<menuitem action='Replace' />
+			<separator />
 			<menuitem action='Redo' />
 			<menuitem action='Undo' />
 		</menu>
@@ -95,6 +99,10 @@ func Menubar() *gtk.Widget {
 	save_as := gtk.NewAction("Save_as", "Save as", "", gtk.STOCK_SAVE_AS)
 	open := gtk.NewAction("Open", "Open", "", gtk.STOCK_OPEN)
 	quit := gtk.NewAction("Quit", "Quit", "", gtk.STOCK_QUIT)
+
+	find := gtk.NewAction("Find", "Find", "", gtk.STOCK_FIND)
+	findnext := gtk.NewAction("Find_next", "Find next", "", "")
+	replace := gtk.NewAction("Replace", "Replace", "", gtk.STOCK_FIND_AND_REPLACE)
 	redo := gtk.NewAction("Redo", "Redo", "", gtk.STOCK_REDO)
 	undo := gtk.NewAction("Undo", "Undo", "", gtk.STOCK_UNDO)
 
@@ -102,6 +110,10 @@ func Menubar() *gtk.Widget {
 	save_as.Connect("activate", Save_as)
 	open.Connect("activate", Open)
 	quit.Connect("activate", Quit)
+
+	find.Connect("activate", Find)
+	findnext.Connect("activate", Findnext)
+	replace.Connect("activate", Replace)
 	redo.Connect("activate", Redo)
 	undo.Connect("activate", Undo)
 
@@ -110,6 +122,9 @@ func Menubar() *gtk.Widget {
 	action_group.AddActionWithAccel(open, "<control>O")
 	action_group.AddActionWithAccel(quit, "<control>Q")
 
+	action_group.AddActionWithAccel(find, "<control>F")
+	action_group.AddActionWithAccel(findnext, "<control>G")
+	action_group.AddActionWithAccel(replace, "<control>R")
 	action_group.AddActionWithAccel(redo, "<control>Y")
 	action_group.AddActionWithAccel(undo, "<control>Z")
 
@@ -220,6 +235,18 @@ func Open() {
 func Quit() {
 	fmt.Println("Quit")
 	gtk.MainQuit()
+}
+
+func Find() {
+	fmt.Println("Find")
+}
+
+func Findnext() {
+	fmt.Println("Findnext")
+}
+
+func Replace() {
+	fmt.Println("Replace")
 }
 
 func Redo() {
