@@ -5,6 +5,7 @@ import (
 	"code.google.com/p/go-charset/charset"
 	_ "code.google.com/p/go-charset/data"
 	"fmt"
+	_ "github.com/mattn/go-gtk/gdk"
 	_ "github.com/mattn/go-gtk/glib"
 	"github.com/mattn/go-gtk/gtk"
 	xcharset "golang.org/x/net/html/charset"
@@ -29,7 +30,8 @@ var (
 
 	Window         *gtk.Window
 	Buffertextview *gtk.TextBuffer
-	GtkTextview    *gtk.TextView
+	Textview       *gtk.TextView
+	FindEntry      *gtk.Entry
 
 	CharsetDir = "/srv/go/.golib/src/code.google.com/p/go-charset/data/"
 )
@@ -52,19 +54,21 @@ func GtkWindow() {
 
 	vbox := gtk.NewVBox(false, 1)
 
-	menubar := Menubar()
-	notice := Notice()
-	textview := Textview()
+	menubar := GtkMenubar()
+	notice := GtkNotice()
+	textview := GtkTextview()
+	find := GtkFind()
 
 	vbox.PackStart(menubar, false, false, 0)
 	vbox.PackStart(notice, false, false, 0)
+	vbox.PackEnd(find, false, false, 0)
 	vbox.Add(textview)
 
 	Window.Add(vbox)
 	Window.ShowAll()
 }
 
-func Menubar() *gtk.Widget {
+func GtkMenubar() *gtk.Widget {
 	ui_xml := `
 <ui>
 	<menubar name='MenuBar'>
@@ -134,7 +138,7 @@ func Menubar() *gtk.Widget {
 	return menubar
 }
 
-func Notice() *gtk.HBox {
+func GtkNotice() *gtk.HBox {
 	toolbar := gtk.NewHBox(false, 5)
 	// button1 := gtk.NewButtonWithLabel("asd1")
 	// button2 := gtk.NewButtonWithLabel("asd2")
@@ -148,30 +152,40 @@ func Notice() *gtk.HBox {
 	return toolbar
 }
 
-func Textview() *gtk.VPaned {
+func GtkTextview() *gtk.VPaned {
 	vpaned := gtk.NewVPaned()
 
 	swin := gtk.NewScrolledWindow(nil, nil)
 	swin.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-	GtkTextview = gtk.NewTextView()
-	swin.Add(GtkTextview)
+	Textview = gtk.NewTextView()
+	swin.Add(Textview)
 
-	Buffertextview = GtkTextview.GetBuffer()
+	Buffertextview = Textview.GetBuffer()
 	Buffertextview.Connect("changed", TextChanged)
 
 	vpaned.Pack1(swin, false, false)
 	return vpaned
 }
 
+func GtkFind() *gtk.Frame {
+	frame := gtk.NewFrame("Find")
+	hbox := gtk.NewHBox(false, 5)
+	FindEntry = gtk.NewEntry()
+	FindEntry.Connect("activate", Find)
+	button := gtk.NewButtonWithLabel("Find")
+	button.Connect("activate", Find)
+	hbox.Add(FindEntry)
+	hbox.PackEnd(button, false, false, 0)
+	frame.Add(hbox)
+	return frame
+}
+
 func TextChanged() {
-	// fmt.Println("TextChanged")
 	var start, end gtk.TextIter
 	Buffertextview.GetStartIter(&start)
 	Buffertextview.GetEndIter(&end)
 
 	buffer := Buffertextview.GetText(&start, &end, false)
-	fmt.Println("Buffer: " + Buffer)
-	fmt.Println("buffer: " + buffer)
 	if buffer != Buffer && len(buffer) > 0 {
 		fmt.Println("Update Buffer")
 		Buffer = buffer
@@ -188,7 +202,6 @@ func TextChanged() {
 
 func Histories() {
 	for {
-		fmt.Println(History_key)
 		if len(Buffer) > 0 && Buffer != History[len(History)-1] && History_key == len(History) {
 			fmt.Println("add to History")
 			History[len(History)] = Buffer
@@ -239,6 +252,10 @@ func Quit() {
 
 func Find() {
 	fmt.Println("Find")
+	find := FindEntry.GetText()
+	if count := strings.Count(Buffer, find); count > 0 {
+		fmt.Println(count)
+	}
 }
 
 func Findnext() {
