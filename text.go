@@ -13,6 +13,7 @@ import (
 	"os"
 	_ "path"
 	"regexp"
+	"strconv"
 	"strings"
 	_ "sync"
 	"time"
@@ -31,7 +32,8 @@ var (
 	Window         *gtk.Window
 	Buffertextview *gtk.TextBuffer
 	Textview       *gtk.TextView
-	FindEntry      *gtk.Entry
+	Findentry      *gtk.Entry
+	Findcount      *gtk.Label
 
 	CharsetDir = "/srv/go/.golib/src/code.google.com/p/go-charset/data/"
 )
@@ -170,12 +172,18 @@ func GtkTextview() *gtk.VPaned {
 func GtkFind() *gtk.Frame {
 	frame := gtk.NewFrame("Find")
 	hbox := gtk.NewHBox(false, 5)
-	FindEntry = gtk.NewEntry()
-	FindEntry.Connect("activate", Find)
+
+	Findentry = gtk.NewEntry()
+	Findentry.Connect("activate", Find)
+
+	Findcount = gtk.NewLabel("")
+
 	button := gtk.NewButtonWithLabel("Find")
 	button.Connect("activate", Find)
-	hbox.Add(FindEntry)
+
+	hbox.Add(Findentry)
 	hbox.PackEnd(button, false, false, 0)
+	hbox.PackEnd(Findcount, false, false, 0)
 	frame.Add(hbox)
 	return frame
 }
@@ -252,9 +260,11 @@ func Quit() {
 
 func Find() {
 	fmt.Println("Find")
-	find := FindEntry.GetText()
+	find := Findentry.GetText()
 	if count := strings.Count(Buffer, find); count > 0 {
-		fmt.Println(count)
+		c := strconv.Itoa(count)
+		Findcount.SetLabel(c)
+		fmt.Println(c)
 	}
 }
 
